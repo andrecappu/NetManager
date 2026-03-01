@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  laravel-app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: netmanager-app
+    container_name: netmanager-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - netmanager-network
+    depends_on:
+      - mariadb
+      - redis
+      - minio
+
+  nginx:
+    image: nginx:alpine
+    container_name: netmanager-nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./backend:/var/www/html
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - netmanager-network
+    depends_on:
+      - laravel-app
+
+  mariadb:
+    image: mariadb:10.6
+    container_name: netmanager-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-netmanager}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-secret}
+      MYSQL_USER: ${DB_USERNAME:-netmanager}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - netmanager-network
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:alpine
+    container_name: netmanager-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - netmanager-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: netmanager-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "8900:8900"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-password}
+    command: server /data --console-address ":8900"
+    volumes:
+      - minio-data:/data
+    networks:
+      - netmanager-network
+
+  reverb:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netmanager-reverb
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan reverb:start --host="0.0.0.0" --port=8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - netmanager-network
+    depends_on:
+      - redis
+
+  horizon:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: netmanager-horizon
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan horizon
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - netmanager-network
+    depends_on:
+      - redis
+      - mariadb
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: netmanager-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - netmanager-network
+
+networks:
+  netmanager-network:
+    driver: bridge
+
+volumes:
+  mariadb-data:
+  redis-data:
+  minio-data:
